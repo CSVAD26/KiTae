@@ -1,28 +1,12 @@
 // Golden Spiral Composition (황금 나선 컴포지션) - MAT236 Project 1, a drawing tool in p5.js
-//
-// Every gesture drawn on the painting is snapped to the golden ratio:
-//   straight line           -> cuts the cell under it at 0.382 or 0.618 of its side
-//   line along a black bar  -> removes that cut (and every cut inside it)
-//   spiral, clockwise, winding inward        -> fills the cell with a golden spiral that flows toward its eye
-//   spiral, counter-clockwise, winding outward -> stops that spiral where it is (a clockwise inward spiral restarts it);
-//                                                 drawn again on a stopped spiral, turns it back into a plain white cell
-//   click                   -> paints the cell, or the spiral piece under the cursor, with the brush color
-//   double click            -> empties the cell, or the spiral piece under the cursor, back to white
-// Any other stroke does nothing.
-// The composition is a binary tree of cells: each cut stores its direction and position,
-// each leaf stores its color and, optionally, a golden spiral.
-// The rail on the right has no words: a logo, six brush colors, and three icon buttons
-// (undo, back to the opening piece, save PNG). Keys: 1-6 brush, Z undo, S save.
 
-/* ---------- golden ratio constants ---------- */
-const PHI = (1 + Math.sqrt(5)) / 2;
-const INV = 1 / PHI;        // 0.618...
-const INV2 = INV * INV;     // 0.382...
-// Eye of the whirling squares (the point they converge to) in the canonical golden
-// rectangle [0, PHI] x [0, 1] whose first square sits on the left.
-const EYE = { x: PHI / (1 + INV2), y: 1 / (1 + INV2) };
+// golden ratio
+const PHI = (1 + Math.sqrt(5)) / 2;                     // 1.618..., positive root of x^2 = x + 1, hence sqrt(5)
+const INV = 1 / PHI;                                    // 0.618... = 1/PHI = PHI - 1: a golden cut point and the spiral's shrink per step
+const INV2 = INV * INV;                                 // 0.382... = INV^2 = 1 - INV: the other golden cut point
+const EYE = { x: PHI / (1 + INV2), y: 1 / (1 + INV2) }; // (1.171, 0.724): the point the shrinking squares close in on; pieces turn and shrink around it
 
-/* ---------- layout ---------- */
+// layout
 const W = 1000, H = 618;                  // painting size: a golden rectangle
 const PAD = 20;                           // margin around the painting
 const RAIL_X = PAD + W + PAD;             // the rail on the right
@@ -33,7 +17,7 @@ const MIN_SPIRAL = 60;                    // smallest cell that can hold a spira
 const TOTAL_W = RAIL_X + RAIL_W + PAD;    // size of the whole tool, painting plus rail
 const TOTAL_H = PAD + H + PAD;
 
-/* ---------- paint ---------- */
+// paint
 const PAINT = {
   red:    { hex: '#C8322B' },
   yellow: { hex: '#EDBD27' },
@@ -45,7 +29,7 @@ const PAINT = {
 const BRUSHES = ['red', 'yellow', 'blue', 'black', 'gray', 'white'];
 const PRIMARY = ['red', 'yellow', 'blue'];
 
-/* ---------- state ---------- */
+// state
 let root;                 // the composition tree
 let brush = 'red';
 let undoStack = [];       // JSON snapshots of root
@@ -56,35 +40,35 @@ let zoom = 1, offX = 0, offY = 0;   // the tool is scaled and centered to fit th
 function setup() {
   createCanvas(windowWidth, windowHeight);
   fitWindow();
-  const bx = RAIL_X + 12, by = PAD + 320;
+  const bx = RAIL_X + 12, by = PAD + 320;   // top-left of the first button. others go 40px lower
   buttons = [
     { icon: 'undo', x: bx, y: by, w: 32, h: 32, action: undo },
     { icon: 'new', x: bx, y: by + 40, w: 32, h: 32, action: clearCanvas },
     { icon: 'save', x: bx, y: by + 80, w: 32, h: 32, action: savePNG },
   ];
-  root = buildExample();
+  root = buildExample(); // create root instance
 }
 
 function draw() {
   const dt = min(deltaTime, 100) / 1000;
-  for (const n of leaves(root)) if (n.spiral) advanceFlow(n.spiral, dt);
+  for (const n of leaves(root)) if (n.spiral) advanceFlow(n.spiral, dt); //
   background('#E8ECE7');
-  translate(offX, offY);
-  scale(zoom);
-  push();
-  translate(PAD, PAD);
+  translate(offX, offY); //
+  scale(zoom); //
+  push(); //
+  translate(PAD, PAD); //
   // nothing may stick out of the painting: bars and strokes are clipped to it
-  drawingContext.beginPath();
-  drawingContext.rect(0, 0, W, H);
-  drawingContext.clip();
-  drawPainting();
-  if (strokePts) drawStrokePath();
-  pop();
-  noFill();
+  drawingContext.beginPath(); //
+  drawingContext.rect(0, 0, W, H); //
+  drawingContext.clip(); //
+  drawPainting(); //
+  if (strokePts) drawStrokePath(); //
+  pop(); //
+  noFill(); //
   stroke('#C5CDC7');
   strokeWeight(1);
   rect(PAD, PAD, W, H);
-  drawRail();
+  drawRail(); //
 }
 function fitWindow() {
   zoom = min(windowWidth / TOTAL_W, windowHeight / TOTAL_H);
@@ -636,9 +620,4 @@ function doubleClicked() {
   if (!p) return;
   pushUndo();
   if (!paintAt(p, 'white')) undoStack.pop();
-}
-function keyPressed() {
-  if (key === 'z' || key === 'Z') undo();
-  else if (key === 's' || key === 'S') savePNG();
-  else if (key >= '1' && key <= '6') brush = BRUSHES[key - 1];
 }
