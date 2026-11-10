@@ -13,7 +13,8 @@
    Pipeline
      1. acquire  buildSample()  or  a Google Maps Timeline export (file input)
      2. parse    readTimeline(): visits and travel segments out of the JSON
-     3. clean    guessMove(): finds the date home changed
+     3. clean    spotStays(): finds stays at a place Google missed (my gym) in the GPS trail
+                 guessMove(): finds the date home changed
                  rebuild(): splits eras, groups visits into places, finds each home, measures km
                  ingest(): sorts, removes overlaps, cuts stays at midnight, labels travel by mode
      4. draw     renderTrails() into an offscreen buffer, draw() adds stars and overlays
@@ -26,6 +27,11 @@ const HOME_KM = 0.1;                 // closer than 100 m counts as being at hom
 const MS_DAY = 86400000;
 const MIN_ERA_DAYS = 14;             // a home needs this many days of data to get its own dial
 const TOP_PLACES = 12;               // stars per dial
+// A place the export hides. Google logs the whole campus as one place, and it logged most of my workouts
+// as a bike ride that goes nowhere. spotStays() finds the real stays in the GPS trail instead.
+const SPOTS = [{ name: 'Rec Cen', la: 34.41835, lo: -119.84981, r: 150 }];      // UCSB Recreation Center (OpenStreetMap), radius in metres
+const SPOT_MIN_MS = 20 * 60000;      // less than 20 minutes inside a spot is passing by
+const SPOT_GAP_MS = 150 * 60000;     // two GPS fixes further apart than this are not one stay
 const MONO = 'IBM Plex Mono';
 const C = { sky: [9, 13, 28], rule: [39, 50, 92], dim: [70, 84, 130], muted: [142, 154, 192], ink: [228, 233, 251], trail: [205, 216, 250] };
 const MODES = ['walk', 'bike', 'transit', 'car', 'flight', 'other'];
@@ -239,6 +245,43 @@ function flattenVisits(visits) {
   return out;
 }
 
+// Google does not always know which building I am in. It logs the whole campus as one place, and it logged most
+// of my workouts as a bike ride that goes nowhere. The GPS trail knows better: whenever it stays inside a spot
+// for 20 minutes or more, that time becomes a stay at the spot, whatever the export recorded for it.
+function spotStays(visits, trail) {
+  if (!trail.length || !visits.length) return visits;
+  trail.sort((p, q) => p.u - q.u);
+  for (const sp of SPOTS) {
+    const inside = p => haversineKm(p.la, p.lo, sp.la, sp.lo) * 1000 <= sp.r;
+    for (const v of visits) if (inside(v)) { v.la = sp.la; v.lo = sp.lo; v.spot = sp.name; }       // a visit Google did pin there is the same place
+    // runs of GPS fixes that never leave the spot
+    const runs = [];
+    let run = null;
+    const close = () => { if (run && run[1] - run[0] >= SPOT_MIN_MS) runs.push(run); };
+    for (const p of trail) {
+      if (inside(p) && run && p.u - run[1] <= SPOT_GAP_MS) run[1] = p.u;
+      else { close(); run = inside(p) ? [p.u, p.u] : null; }
+    }
+    close();
+    for (const [w0, w1] of runs) {
+      // the trail carries no time zone of its own: borrow the wall-clock offset of the nearest visit
+      let ref = visits[0];
+      for (const v of visits) if (Math.abs(v.u - w0) < Math.abs(ref.u - w0)) ref = v;
+      const off = ref.a - ref.u, out = [];
+      for (const v of visits) {
+        const v0 = v.u, v1 = v.u + (v.b - v.a);
+        if (v1 <= w0 || v0 >= w1) { out.push(v); continue; }
+        // whatever was recorded for this time keeps only what lies outside the run
+        if (w0 - v0 >= 60000) out.push(Object.assign({}, v, { b: v.a + (w0 - v0) }));
+        if (v1 - w1 >= 60000) out.push(Object.assign({}, v, { u: w1, a: v.a + (w1 - v0) }));
+      }
+      out.push({ u: w0, a: w0 + off, b: w1 + off, la: sp.la, lo: sp.lo, type: '', name: '', id: '', lv: 0, spot: sp.name });
+      visits = out;
+    }
+  }
+  return visits;
+}
+
 // Google already labels each travel segment (WALKING, CYCLING, IN_BUS, IN_PASSENGER_VEHICLE, FLYING ...).
 // When the label is missing, average speed gives a rough answer.
 function modeOf(type, meters, ms) {
@@ -255,14 +298,16 @@ function modeOf(type, meters, ms) {
   return 'other';
 }
 
-// visits: { u (real start), a, b (wall-clock start and end), la, lo, type, name, lv }   acts: { u, ue (real start and end), mode }
+// visits: { u (real start), a, b (wall-clock start and end), la, lo, type, name, lv, spot }   acts: { u, ue (real start and end), mode }
 function readTimeline(json) {
   let visits = [];
-  const acts = [];
+  const acts = [], trail = [];         // trail: GPS fixes { u, la, lo }, used only by spotStays()
   const segs = Array.isArray(json) ? json : (json && Array.isArray(json.semanticSegments)) ? json.semanticSegments : null;
   if (segs) {
     for (const sg of segs) {
-      if (!sg || typeof sg !== 'object' || (!sg.visit && !sg.activity)) continue;       // timelinePath and timelineMemory are not used
+      if (!sg || typeof sg !== 'object') continue;
+      if (Array.isArray(sg.timelinePath)) for (const p of sg.timelinePath) { const t = p && readTime(p.time), ll = p && parseCoord(p.point); if (t && ll) trail.push({ u: t.u, la: ll[0], lo: ll[1] }); }
+      if (!sg.visit && !sg.activity) continue;       // timelineMemory is not used
       const t0 = readTime(sg.startTime, sg.startTimeTimezoneUtcOffsetMinutes), t1 = readTime(sg.endTime, sg.endTimeTimezoneUtcOffsetMinutes);
       if (!t0 || !t1 || t1.u <= t0.u) continue;
       const tc = sg.visit && sg.visit.topCandidate;
@@ -276,6 +321,9 @@ function readTimeline(json) {
       }
     }
     visits = flattenVisits(visits);
+    // rawSignals: the phone's own GPS fixes, kept for about the last 30 days
+    if (Array.isArray(json.rawSignals)) for (const r of json.rawSignals) { const p = r && r.position, t = p && readTime(p.timestamp), ll = p && parseCoord(p.LatLng != null ? p.LatLng : p.latLng); if (t && ll) trail.push({ u: t.u, la: ll[0], lo: ll[1] }); }
+    visits = spotStays(visits, trail);
   } else if (json && Array.isArray(json.timelineObjects)) {
     for (const o of json.timelineObjects) {
       const pv = o && o.placeVisit, as = o && o.activitySegment;
@@ -363,10 +411,11 @@ function rebuild() {
   for (const v of visits) {
     const k = keyOf(v), d = v.b - v.a;
     let e = cl.get(k);
-    if (!e) { e = { key: k, era: eraOf(v), ms: 0, night: 0, work: 0, sla: 0, slo: 0, names: new Map(), ids: new Map() }; cl.set(k, e); }
+    if (!e) { e = { key: k, era: eraOf(v), ms: 0, night: 0, work: 0, sla: 0, slo: 0, names: new Map(), ids: new Map(), spots: new Map() }; cl.set(k, e); }
     e.ms += d; e.night += nightMs(v.a, v.b); e.sla += v.la * d; e.slo += v.lo * d;
     if (/WORK/i.test(v.type)) e.work += d;
     if (v.name) e.names.set(v.name, (e.names.get(v.name) || 0) + d);
+    if (v.spot) e.spots.set(v.spot, (e.spots.get(v.spot) || 0) + d);
     if (v.id) e.ids.set(v.id, (e.ids.get(v.id) || 0) + d);
   }
   // home of each era = the place where the most night hours were spent (total time breaks ties)
@@ -386,6 +435,7 @@ function rebuild() {
       e.home = e === homes[i] || e.km < HOME_KM;
       let nm = '', top = 0, topId = 0;
       for (const [n, ms] of e.names) if (ms > top) { top = ms; nm = n; }
+      for (const [n, ms] of e.spots) if (!nm && ms > e.ms * 0.5) nm = n;        // a spot names its place only when most of the time there is the spot's
       e.pid = '';
       for (const [id, ms] of e.ids) if (ms > topId) { topId = ms; e.pid = id; }     // Google's place id, for the map link
       if (!nm && !e.home && i === 1 && haversineKm(homes[0].la, homes[0].lo, e.la, e.lo) < 1) nm = 'Old home';
