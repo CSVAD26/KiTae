@@ -1,0 +1,5 @@
+data/
+Timeline*.json
+location-history*.json
+*.timeline.json
+.DS_Store

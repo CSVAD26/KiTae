@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Star Trails</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Instrument+Serif&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <p class="eyebrow">Data portrait · prototype</p>
+    <h1>Home Star Trails</h1>
+    <p class="lede">Every day is one trail on a 24-hour dial. The angle is the time of day. The distance from the centre is how far I was from home. One dial for each home I have lived in.</p>
+    <div class="source">
+      <p id="srcLine" role="status"></p>
+      <div class="row">
+        <button class="btn" id="loadBtn" type="button">Load my Timeline.json</button>
+        <button class="btn ghost" id="sampleBtn" type="button" hidden>Back to sample data</button>
+        <input id="fileIn" type="file" accept=".json,application/json" multiple hidden>
+      </div>
+      <div class="field">
+        <label for="moveDate">Home changed on</label>
+        <input id="moveDate" type="date">
+        <span id="moveNote"></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="stageCol">
+    <div id="stage"></div>
+    <section id="dayRoute"></section>
+    <details id="placeWrap" class="fold">
+      <summary><span id="placeTitle">Places</span></summary>
+      <div id="placeBook"></div>
+    </details>
+  </div>
+
+  <section class="ctrl">
+    <div>
+      <h2>What counts as one place</h2>
+      <div class="chips" id="sizeChips"></div>
+    </div>
+    <div>
+      <h2>Days of the week</h2>
+      <div class="chips" id="dowChips"></div>
+      <div class="presets">
+        <button class="link" id="preAll" type="button">All days</button>
+        <button class="link" id="preWd" type="button">Weekdays only</button>
+        <button class="link" id="preWe" type="button">Weekends only</button>
+      </div>
+    </div>
+    <div>
+      <h2>Months</h2>
+      <div class="chips" id="monChips"></div>
+      <div class="presets"><button class="link" id="preMon" type="button">All months</button></div>
+    </div>
+    <div id="yrGroup" hidden>
+      <h2>Years</h2>
+      <div class="chips" id="yrChips"></div>
+    </div>
+    <ul class="legend">
+      <li><i style="background:var(--trail)"></i>time spent at a place</li>
+      <li><i class="dot"></i>a place, sized by total time</li>
+      <li><i class="dash"></i>reach of a typical day</li>
+      <li><i style="background:#56b4e9"></i>on foot</li>
+      <li><i style="background:#26d0a0"></i>bike</li>
+      <li><i style="background:#d684b8"></i>bus or train</li>
+      <li><i style="background:#f0a028"></i>car</li>
+      <li><i style="background:#969cbe"></i>flight</li>
+    </ul>
+    <details id="roWrap" class="fold" open>
+      <summary><span id="roTitle">Summary</span></summary>
+      <div id="readout" aria-live="polite"></div>
+    </details>
+  </section>
+</main>
+
+<script src="libraries/p5.min.js"></script>
+<script src="sketch.js"></script>
+</body>
+</html>
